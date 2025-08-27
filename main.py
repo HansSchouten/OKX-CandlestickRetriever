@@ -23,9 +23,7 @@ LABELS = [
     'low',
     'close',
     'volume',
-    'quote_asset_volume',
-    'quote_asset_volume2',
-    'confirm'
+    'quote_asset_volume'
 ]
 
 category = 'SPOT'
@@ -68,6 +66,10 @@ def get_batch(symbol, interval='1m', start_time=0, limit=300):
         return get_batch(symbol, interval, start_time, limit)
 
     if response.status_code == 200:
+        # drop last two columns
+        for i in range(len(data)):
+            data[i] = data[i][:-2]
+
         df = pd.DataFrame(data, columns=LABELS)
         df['open_time'] = df['open_time'].astype(np.int64)
         df = df[df.open_time < START_TIME.timestamp() * 1000]
@@ -88,7 +90,7 @@ def all_candles_to_csv(base, quote, interval='1m'):
     except FileNotFoundError:
         batches = [pd.DataFrame([], columns=LABELS)]
         # last_timestamp = int((datetime.now() - timedelta(days=7)).timestamp() * 1000)
-        last_timestamp = 1640995200000  # 2022-01-01
+        last_timestamp = 1704067200000  # 2024-01-01
         new_file = True
     old_lines = len(batches[-1].index)
 
@@ -106,7 +108,8 @@ def all_candles_to_csv(base, quote, interval='1m'):
         new_batch = get_batch(
             symbol=base + '-' + quote,
             interval=interval,
-            start_time=last_timestamp+1
+            start_time=last_timestamp+1,
+            limit=300
         )
 
         # requesting candles from the future returns empty
@@ -117,12 +120,7 @@ def all_candles_to_csv(base, quote, interval='1m'):
         if new_batch.empty:
             last_timestamp = last_timestamp + 86400000
         else:
-            last_timestamp = new_batch['open_time'].max()
-
-        # sometimes no new trades took place yet on date.today();
-        # in this case the batch is nothing new
-        if previous_timestamp == last_timestamp:
-            break
+            last_timestamp = new_batch['open_time'].max() + (300 * 60 * 1000)
 
         if not new_batch.empty:
             batches.append(new_batch)
