@@ -28,10 +28,13 @@ LABELS = [
 
 category = 'SPOT'
 
-def get_batch(symbol, interval='1m', start_time=0, limit=300):
+def get_batch(symbol, interval='1m', start_time=0, limit=300, retries=5):
     """Use a GET request to retrieve a batch of candlesticks. Process the JSON into a pandas
     dataframe and return it. If not successful, return an empty dataframe.
     """
+    if retries <= 0:
+        print('Max retries reached, returning empty dataframe')
+        return pd.DataFrame([], columns=LABELS)
 
     params = {
         'instId': symbol,
@@ -48,22 +51,22 @@ def get_batch(symbol, interval='1m', start_time=0, limit=300):
     except requests.exceptions.ConnectionError:
         print('Connection error, Cooling down for 5 mins...')
         time.sleep(5 * 60)
-        return get_batch(symbol, interval, start_time, limit)
+        return get_batch(symbol, interval, start_time, limit, retries-1)
     
     except requests.exceptions.Timeout:
         print('Timeout, Cooling down for 5 min...')
         time.sleep(5 * 60)
-        return get_batch(symbol, interval, start_time, limit)
+        return get_batch(symbol, interval, start_time, limit, retries-1)
     
     except requests.exceptions.ConnectionResetError:
         print('Connection reset by peer, Cooling down for 5 min...')
         time.sleep(5 * 60)
-        return get_batch(symbol, interval, start_time, limit)
+        return get_batch(symbol, interval, start_time, limit, retries-1)
 
     except Exception as e:
         print(f'Unknown error: {e}, Cooling down for 5 min...')
         time.sleep(5 * 60)
-        return get_batch(symbol, interval, start_time, limit)
+        return get_batch(symbol, interval, start_time, limit, retries-1)
 
     if response.status_code == 200:
         # drop last two columns
@@ -74,8 +77,9 @@ def get_batch(symbol, interval='1m', start_time=0, limit=300):
         df['open_time'] = df['open_time'].astype(np.int64)
         df = df[df.open_time < START_TIME.timestamp() * 1000]
         return df
+
     print(f'Got erroneous response back: {response}')
-    return pd.DataFrame([])
+    return pd.DataFrame([], columns=LABELS)
 
 def all_candles_to_csv(base, quote, interval='1m'):
     """Collect a list of candlestick batches with all candlesticks of a trading pair,
@@ -175,12 +179,16 @@ def main():
     # do a full update on all pairs
     n_count = len(filtered_pairs)
     for n, pair in enumerate(filtered_pairs, 1):
-        base, quote = pair
-        new_lines = all_candles_to_csv(base=base, quote=quote)
-        if new_lines > 0:
-            print(f'{datetime.now()} {n}/{n_count} Wrote {new_lines} new lines to file for {base}-{quote}')
-        else:
-            print(f'{datetime.now()} {n}/{n_count} Already up to date with {base}-{quote}')
+        try:
+            base, quote = pair
+            new_lines = all_candles_to_csv(base=base, quote=quote)
+            if new_lines > 0:
+                print(f'{datetime.now()} {n}/{n_count} Wrote {new_lines} new lines to file for {base}-{quote}')
+            else:
+                print(f'{datetime.now()} {n}/{n_count} Already up to date with {base}-{quote}')
+        except Exception as e:
+            print(f'Error with {pair}: {e}')
+            continue
 
 
 if __name__ == '__main__':
